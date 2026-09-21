@@ -26,6 +26,7 @@ type Upload = {
   updated: number;
   retentionDays?: number;
   purged?: number;
+  replacedSameDay?: number;
   stats: Stats;
   warnings: string[];
 };
@@ -117,13 +118,14 @@ export default function UploadPage() {
 
       <p className="hint">
         파일은 가공하지 않으셔도 됩니다. 컬럼 순서가 달라도 「운송장번호」와 「이름」만 있으면 읽습니다.
-        수정한 파일을 다시 올리면 기존 내용을 덮어씁니다 — 중복으로 쌓이지 않습니다.
+        같은 날 여러 번 올리면 <b>마지막 파일 기준</b>으로 정리됩니다 — 잘못 올렸으면 고쳐서 다시 올리시면 됩니다.
+        등록 이력은 하루 한 건씩 최근 7일치만 보입니다.
         출하 후 60일이 지난 건은 자동으로 삭제됩니다(아직 출고되지 않은 건은 남습니다).
       </p>
 
       {error && <div className="err">{error}</div>}
 
-      <h2 className="board-title">등록 이력</h2>
+      <h2 className="board-title">등록 이력 <small>최근 7일</small></h2>
 
       {history.length === 0 && <div className="empty">아직 등록된 파일이 없습니다.</div>}
 
@@ -135,12 +137,8 @@ export default function UploadPage() {
             <button className="board-head" onClick={() => setOpen(expanded ? '' : u.uploadedAt)}>
               <span className="date">{fmtDate(u.uploadedAt)}</span>
               <span className="fname">{u.fileName}</span>
-              <span className="cnt">
-                {u.inserted > 0 && `신규 ${u.inserted.toLocaleString()}`}
-                {u.inserted > 0 && u.updated > 0 && ' · '}
-                {u.updated > 0 && `갱신 ${u.updated.toLocaleString()}`}
-                {u.inserted === 0 && u.updated === 0 && '변경 없음'}
-              </span>
+              {/* 하루 한 건 구조라 신규/갱신 구분은 헷갈리기만 한다 — 그날 들어간 수만 보여준다 */}
+              <span className="cnt">등록 {u.stats.kept.toLocaleString()}건</span>
               {issues.length > 0
                 ? <span className="badge warn">확인 {issues.length}</span>
                 : <span className="badge ok">정상</span>}
@@ -152,6 +150,18 @@ export default function UploadPage() {
                 <dl>
                   <dt>시트</dt><dd>{u.sheetName} ({u.headerRow}행이 헤더)</dd>
                   <dt>읽은 행</dt><dd>{u.stats.totalRows.toLocaleString()}행 → 등록 {u.stats.kept.toLocaleString()}건</dd>
+                  <dt>변경</dt>
+                  <dd>
+                    {u.inserted > 0 || u.updated > 0
+                      ? `새로 들어옴 ${u.inserted.toLocaleString()} · 덮어씀 ${u.updated.toLocaleString()}`
+                      : '변경 없음'}
+                  </dd>
+                  {!!u.replacedSameDay && (
+                    <>
+                      <dt>같은 날 정리</dt>
+                      <dd>이전 업로드에만 있던 {u.replacedSameDay.toLocaleString()}건 삭제</dd>
+                    </>
+                  )}
                   {u.purged !== undefined && (
                     <>
                       <dt>보관 정리</dt>

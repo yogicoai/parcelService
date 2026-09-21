@@ -38,5 +38,10 @@ export async function ensureIndexes(): Promise<void> {
     // 보관 기간 정리(shippedAt 경과 / 미출고인데 파일에서 사라진 건)가 인덱스를 타게 한다
     col.createIndex({ updatedAt: 1 }),
   ]);
-  await db.collection('uploads').createIndex({ uploadedAt: -1 });
+  const uploads = db.collection('uploads');
+  await uploads.createIndex({ uploadedAt: -1 });
+  // 등록 이력은 하루 한 건 — day 가 같으면 덮어쓴다
+  await uploads.createIndex({ day: 1 }, { unique: true, partialFilterExpression: { day: { $type: 'string' } } });
+  // 같은 날 먼저 들어왔다가 마지막 파일엔 없는 행을 찾는 조건
+  await col.createIndex({ firstSeenAt: 1, updatedAt: 1 });
 }

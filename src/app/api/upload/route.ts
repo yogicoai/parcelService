@@ -18,6 +18,14 @@ export const dynamic = 'force-dynamic';
 // Vercel 무료 플랜 상한이 60초다. 물류팀 파일(3,600행)은 5초 안팎이라 충분하다.
 export const maxDuration = 60;
 
+/** 등록 이력을 며칠치 보여줄지 — 오늘 포함 */
+const HISTORY_DAYS = 7;
+
+/** 한국 시간 기준 'YYYY-MM-DD' */
+function kstDay(d: Date): string {
+  return new Date(d.getTime() + 9 * 3_600_000).toISOString().slice(0, 10);
+}
+
 export async function POST(req: Request) {
   try {
     // 파일 첨부 형식(multipart)이 아닌 요청은 formData() 가 예외를 던진다.
@@ -51,6 +59,9 @@ export async function POST(req: Request) {
 
     const uploadedAt = new Date();
     const uploadId = `${uploadedAt.toISOString().slice(0, 19)}-${file.name}`;
+    // 하루 단위는 한국 시간으로 자른다 — UTC 로 자르면 오전 9시 전 업로드가 전날로 잡힌다
+    const day = kstDay(uploadedAt);
+    const dayStart = new Date(`${day}T00:00:00+09:00`);
 
     // rowHash 기준 멱등 upsert — 같은 파일을 두 번 올려도 늘어나지 않는다.
     let inserted = 0;
@@ -71,6 +82,18 @@ export async function POST(req: Request) {
       inserted += res.upsertedCount || 0;
       updated += res.modifiedCount || 0;
     }
+
+    /*
+     * 같은 날 다시 올리면 그날 데이터는 **마지막 파일 기준**이 된다.
+     * 오전에 잘못된 파일을 올렸다가 오후에 고쳐 올리면, 등록 이력엔 오후 것만 남는데
+     * 오전 파일에만 있던 행은 DB 에 그대로 남아 조회에 섞여 나온다 — 이력과 데이터가 어긋난다.
+     * 그래서 "오늘 처음 들어왔는데(firstSeenAt) 이번 파일이 건드리지 않은(updatedAt)" 행을 치운다.
+     * 어제 이전에 들어온 행은 대상이 아니다 — 그건 아래 보관 기간 규칙이 맡는다.
+     */
+    const replaced = await col.deleteMany({
+      firstSeenAt: { $gte: dayStart },
+      updatedAt: { $lt: uploadedAt },
+    });
 
     /*
      * 보관 기간 정리 — 업로드할 때마다 오래된 건을 지운다.
@@ -100,6 +123,8 @@ export async function POST(req: Request) {
       uploadedAt,
       retentionDays,
       purged: purged.deletedCount || 0,
+      day,
+      replacedSameDay: replaced.deletedCount || 0,
       fileName: file.name,
       fileSize: file.size,
       sheetName: parsed.sheetName,
@@ -109,7 +134,15 @@ export async function POST(req: Request) {
       stats: parsed.stats,
       warnings: parsed.warnings,
     };
-    await db.collection('uploads').insertOne(result);
+    /*
+     * 등록 이력은 하루에 한 건 — 같은 날 여러 번 올리면 마지막 업로드로 덮어쓴다.
+     * 그리고 최근 7일치만 남긴다. 물류팀은 "어제·그제 제대로 들어갔나"만 확인하면 되고,
+     * 끝없이 쌓이면 게시판이 지저분해져서 정작 오늘 결과를 못 찾는다.
+     * (배송 데이터 보관 60일과는 별개다 — 이건 게시판 이력만의 규칙이다)
+     */
+    const uploads = db.collection('uploads');
+    await uploads.replaceOne({ day }, result, { upsert: true });
+    await uploads.deleteMany({ day: { $lt: kstDay(new Date(uploadedAt.getTime() - (HISTORY_DAYS - 1) * 86_400_000)) } });
 
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
