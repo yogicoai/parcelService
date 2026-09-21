@@ -20,7 +20,11 @@ export const maxDuration = 60;
 
 export async function POST(req: Request) {
   try {
-    const form = await req.formData();
+    // 파일 첨부 형식(multipart)이 아닌 요청은 formData() 가 예외를 던진다.
+    // 그걸 바깥 catch 로 흘리면 서버 오류(500)에 내부 문구가 그대로 나간다 — 요청 오류(400)로 돌려준다.
+    let form: FormData;
+    try { form = await req.formData(); }
+    catch { return NextResponse.json({ ok: false, error: '엑셀 파일을 첨부해 주세요.' }, { status: 400 }); }
     const file = form.get('file');
     if (!(file instanceof File)) {
       return NextResponse.json({ ok: false, error: '파일이 없습니다.' }, { status: 400 });

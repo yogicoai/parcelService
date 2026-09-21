@@ -154,3 +154,15 @@ header.top nav a:hover { background: var(--brand-soft); color: var(--brand-dark)
 .board-body dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
 .board-body .warn { color: var(--warn); font-weight: 600; margin-top: 12px; line-height: 1.6; }
 .board-body .allgood { color: var(--brand-dark); font-weight: 600; margin: 12px 0 0; }
+
+/* 상단 메뉴 — 로그아웃 */
+header.top nav { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.nav-btn {
+  font-size: 14px; color: var(--muted); background: none; border: 0;
+  padding: 6px 10px; border-radius: 8px; cursor: pointer; font-family: inherit;
+}
+.nav-btn:hover { background: var(--brand-soft); color: var(--brand-dark); }
+
+/* 로그인 */
+.login { max-width: 420px; padding-top: 48px; }
+.login h2 { font-size: 20px; margin: 0 0 18px; letter-spacing: -0.02em; }
