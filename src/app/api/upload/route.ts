@@ -140,6 +140,25 @@ export async function POST(req: Request) {
      * 끝없이 쌓이면 게시판이 지저분해져서 정작 오늘 결과를 못 찾는다.
      * (배송 데이터 보관 60일과는 별개다 — 이건 게시판 이력만의 규칙이다)
      */
+    /*
+     * 오프라인 어드민 「출하상황」용 스냅샷 — 이번 파일 전체를 문서 한 건으로 통째 교체한다.
+     * 어드민(offorder 서버)이 이 문서의 uploadedAt 이 바뀐 걸 보고 자기 출하 데이터를 갈아끼운다.
+     * 한 건으로 두는 이유: 교체가 원자적이라 어드민이 반쯤 바뀐 데이터를 읽을 일이 없다
+     * (3,700행 ≈ 1MB, 문서 한도 16MB).
+     * 직전 파일은 previous 로 남겨 잘못 올린 파일로 덮였을 때 되돌릴 수 있게 한다.
+     */
+    const snapCol = db.collection<{ _id: string } & Record<string, unknown>>('adminSnapshot');
+    const prevSnap = await snapCol.findOne({ _id: 'latest' });
+    if (prevSnap) {
+      const { _id: _latestId, ...prevBody } = prevSnap;
+      await snapCol.replaceOne({ _id: 'previous' }, prevBody, { upsert: true });
+    }
+    await snapCol.replaceOne(
+      { _id: 'latest' },
+      { uploadedAt, fileName: file.name, rowCount: parsed.snapshot.length, rows: parsed.snapshot },
+      { upsert: true },
+    );
+
     const uploads = db.collection('uploads');
     await uploads.replaceOne({ day }, result, { upsert: true });
     await uploads.deleteMany({ day: { $lt: kstDay(new Date(uploadedAt.getTime() - (HISTORY_DAYS - 1) * 86_400_000)) } });

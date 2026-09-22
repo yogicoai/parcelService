@@ -34,8 +34,29 @@ export type ShipmentRow = {
   note: string;
 };
 
+/**
+ * 오프라인 어드민 「출하상황」이 가져가는 원본 행.
+ *
+ * rows 와 따로 두는 이유 — 매장 조회용 rows 는 운송장 없는 행을 버리고 출하일자를 날짜로만 남긴다.
+ * 그런데 어드민은 바로 그 정보로 상태를 가른다: 운송장 없이 날짜만 적힌 행은 「출고예정」,
+ * 출하일자 칸의 `출고보류`·`주문취소` 글자는 「출고보류」·「처리중」. 그래서 파일 그대로를 따로 싣는다.
+ * 주소는 어드민이 쓰지 않으므로 싣지 않는다.
+ */
+export type SnapshotRow = {
+  store: string;
+  invoice: string;
+  carrier: string;
+  orderNo: string;
+  /** 날짜 셀이면 'YYYY-MM-DD', 글자면 그 글자 그대로 */
+  shipDate: string;
+  name: string;
+  phone: string;
+  product: string;
+};
+
 export type ParseResult = {
   rows: ShipmentRow[];
+  snapshot: SnapshotRow[];
   headerRow: number;
   sheetName: string;
   stats: {
@@ -193,6 +214,7 @@ export async function parseShipmentWorkbook(buffer: Buffer): Promise<ParseResult
 
   const stats = { totalRows: 0, kept: 0, skippedNoInvoice: 0, skippedNoName: 0, unknownCarrier: 0, badDate: 0, duplicateDropped: 0 };
   const rows: ShipmentRow[] = [];
+  const snapshot: SnapshotRow[] = [];
   const seen = new Set<string>();
 
   for (let r = headerRow + 1; r <= sheet.rowCount; r++) {
@@ -203,6 +225,19 @@ export async function parseShipmentWorkbook(buffer: Buffer): Promise<ParseResult
     // 합계행·빈행 스킵
     if (!customerName && !invoiceRaw) continue;
     stats.totalRows++;
+
+    // 어드민용 원본 행은 아래 스킵 규칙보다 먼저 담는다
+    const shipRaw = get(row, 'shippedAtStr');
+    snapshot.push({
+      store: cellText(get(row, 'store')),
+      invoice: invoiceRaw,
+      carrier: cellText(get(row, 'carrierRaw')),
+      orderNo: cellText(get(row, 'orderNo')),
+      shipDate: shipRaw instanceof Date ? shipRaw.toISOString().slice(0, 10) : cellText(shipRaw),
+      name: customerName,
+      phone: cellText(get(row, 'phone')),
+      product: cellText(get(row, 'productName')),
+    });
 
     if (!invoiceRaw) { stats.skippedNoInvoice++; continue; }
     if (!customerName) { stats.skippedNoName++; continue; }
@@ -244,5 +279,5 @@ export async function parseShipmentWorkbook(buffer: Buffer): Promise<ParseResult
     stats.kept++;
   }
 
-  return { rows, headerRow, sheetName: sheet.name, stats, warnings };
+  return { rows, snapshot, headerRow, sheetName: sheet.name, stats, warnings };
 }
